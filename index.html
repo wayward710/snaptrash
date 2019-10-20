@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<title>Leaflet - Particle animation</title>
+
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- Load Leaflet 1.3.1 -->
+<link rel="stylesheet" href="/leaflet/leaflet.css" crossorigin=""/>
+<script src="/leaflet/leaflet.js"  crossorigin=""></script>
+
+<!-- Load Esri Leaflet 2.1.4 -->
+<script src="/esri-leaflet/esri-leaflet.js" crossorigin=""></script>
+
+<!-- Load JQuery 3.3.1 -->
+<script src="/jquery-3.3.1.min.js" crossorigin=""></script>
+
+<!--leaflet-velocity-->
+<link rel="stylesheet" href="/leaflet-velocity_tkws/leaflet-velocity.css" />
+<script src="/leaflet-velocity_tkws/leaflet-velocity.js"></script>
+<script src="/leaflet-velocity_tkws/IE_workarounds.js"></script>
+
+<!--for timeslider-->
+<script type="text/javascript" src="/leafletTimeDimension/iso8601.min.js"></script>
+<script type="text/javascript" src="/leafletTimeDimension/leaflet.timedimension.noLayers.src.js"></script>
+<link rel="stylesheet" href="/leafletTimeDimension/leaflet.timedimension.control.min.css" />
+
+<!--load variable values from server-->
+<script type="text/javascript" src="/weather/javascript_vars.js"></script>
+<script type="text/javascript" src="/weather/javascript_vars_rtofs.js"></script>
+
+<style>
+body { margin:0; padding:0; }
+#map { position: absolute; top:0; bottom:0; right:0; left:0; z-index:1; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<script>
+var osmUrl='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+var osmAttrib='Map data © <a href="https://openstreetmap.org">OpenStreetMap</a> contributors';
+var OpenStreetMap = new L.tileLayer(osmUrl, {maxZoom: 18, attribution: osmAttrib, opacity: 0.4}),
+Topographic = new L.esri.basemapLayer('Topographic', {opacity: 0.4}),
+Streets = new L.esri.basemapLayer('Streets', {opacity: 0.4}),
+NationalGeographic = new L.esri.basemapLayer('NationalGeographic', {opacity: 0.4}),
+Oceans = new L.esri.basemapLayer('Oceans', {opacity: 0.4}),
+Gray = new L.esri.basemapLayer('Gray', {opacity: 0.4}),
+DarkGray = new L.esri.basemapLayer('DarkGray'),
+Imagery = new L.esri.basemapLayer('Imagery'),
+ShadedRelief = new L.esri.basemapLayer('ShadedRelief', {opacity: 0.4});
+
+
+var startTime = new Date(Date.UTC(GFS_server_year, GFS_server_month - 1, GFS_server_day, GFS_server_hour));
+var actualTime = new Date(Date.UTC(GFS_server_year, GFS_server_month - 1, GFS_server_day, GFS_server_hour + 6)); //actual time is about 6 hours ahead to the first forecast timestep
+var endTime = new Date(Date.UTC(GFS_server_year, GFS_server_month - 1, GFS_server_day, GFS_server_hour + ((GFS_timesteps-1)*GFS_interval)));
+var dataTimeInterval = startTime.toISOString() + "/" + endTime.toISOString();
+var actualInterval = GFS_interval*2 ; // show only every second available timestep (GFS_interval is "3" hours
+var baseIndex = 1; // index of the wind10mArray containing the layer nearest to the actual time (2 if actualIndex==GFS_Index, 1 if actualIndex==GFS_Index*2)
+var dataPeriod = "PT" + (actualInterval) + "H";
+var wind10mBaseURL = 'weather/wind10m/';
+var wind10mBaseName = 'wind10m_{h}h';
+var wind10mName = '';
+var wind10mArray = [];
+
+
+var startTimeRTOFS = new Date(Date.UTC(RTOFS_server_year, RTOFS_server_month - 1, RTOFS_server_day, RTOFS_server_hour));
+var actualTimeRTOFS = new Date(Date.UTC(RTOFS_server_year, RTOFS_server_month - 1, RTOFS_server_day, RTOFS_server_hour + 6));
+var endTimeRTOFS = new Date(Date.UTC(RTOFS_server_year, RTOFS_server_month - 1, RTOFS_server_day, RTOFS_server_hour + ((RTOFS_timesteps-1)*RTOFS_interval)));
+var dataTimeIntervalRTOFS = startTimeRTOFS.toISOString() + "/" + endTimeRTOFS.toISOString();
+var actualIntervalRTOFS = RTOFS_interval*2 ; // show only every second available timestep
+var baseIndexRTOFS = 1; // index of the seaSurfaceCurrent Array containing the layer nearest to the actual time (2 if actualIndex==RTOFS_Index, 1 if actualIndex==RTOFS_Index*2)
+var dataPeriodRTOFS = "PT" + (actualIntervalRTOFS) + "H";
+var seaSurfaceCurrentBaseURL = 'weather/sea_surface_current/';
+var seaSurfaceCurrentBaseName = 'sea_surface_current_{h}h';
+var seaSurfaceCurrentName = '';
+var seaSurfaceCurrentArray = [];
+
+
+var map = new L.map('map', {
+center: [54.04, 9.07],
+zoom: 4,
+layers: [Imagery],
+timeDimension: true,
+timeDimensionOptions: {
+timeInterval: dataTimeInterval,
+period: dataPeriod,
+currentTime: actualTime
+},
+timeDimensionControl: true,
+timeDimensionControlOptions: {
+loopButton: false,
+limitSliders: false,
+playButton: false,
+speedSlider: false
+}
+});
+
+var baseMaps = {
+"OpenStreetMap": OpenStreetMap,
+"Topographic": Topographic,
+"Streets": Streets,
+"NationalGeographic": NationalGeographic,
+"<span style='color: gray'>Gray</span>": Gray,
+"DarkGray": DarkGray,
+"Imagery": Imagery,
+"ShadedRelief": ShadedRelief,
+"Oceans": Oceans,
+};
+
+var layerControl = new L.control.layers(baseMaps);
+layerControl.addTo(map);
+
+var wind10mLayerGroup = new L.layerGroup([], {});
+wind10mArray.length = map.timeDimension._availableTimes.length;
+
+var actualTimeIndex = map.timeDimension._currentTimeIndex;
+
+// load data (u, v grids) from weather.openportguide.de
+layerControl.addOverlay(wind10mLayerGroup, 'wind10m');
+updateLayer(wind10mArray[actualTimeIndex]);
+
+window.setInterval(function() { //check if time index changed
+if (actualTimeIndex != map.timeDimension._currentTimeIndex) {
+actualTimeIndex = map.timeDimension._currentTimeIndex;
+updateLayer(wind10mArray[actualTimeIndex]);
+}
+},100);
+
+function updateLayer(Layer){ //updates the actual layer
+wind10mLayerGroup.clearLayers();
+wind10mName = wind10mBaseName.replace(/{h}/g, (actualTimeIndex - baseIndex) * actualInterval);
+
+$.getJSON(wind10mBaseURL + wind10mName + ".json", function (data) {
+this[wind10mName] = L.velocityLayer({
+displayValues: true,
+displayOptions: {
+velocityType: "Wind",
+emptyString: "No wind data",
+angleConvention: "bearingCW",
+speedUnit: "Bft"
+},
+data: data,
+minVelocity: 0,
+maxVelocity: 30,
+velocityScale: 0.002,
+particleAge: 90,
+lineWidth: 1,
+particleMultiplier: 0.0033,
+frameRate: 15,
+colorScale: ["#2468b4", "#3c9dc2", "#80cdc1", "#97daa8", "#c6e7b5", "#eef7d9", "#ffee9f", "#fcd97d", "#ffb664", "#fc964b", "#fa7034", "#f54020", "#ed2d1c", "#dc1820", "#b40023"]
+});
+
+wind10mLayerGroup.addLayer(this[wind10mName]);
+wind10mArray[actualTimeIndex] = wind10mLayerGroup.getLayer(wind10mLayerGroup.getLayerId(this[wind10mName]));
+wind10mLayerGroup.addTo(map);
+});
+}
+</script>
+</body>
+</html>

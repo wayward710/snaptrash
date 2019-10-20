@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+  <title>SnapTrash</title>
+
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Load Leaflet 1.3.1 -->
+  <link rel="stylesheet" href="leaflet/leaflet.css" crossorigin=""/>
+  <script src="leaflet/leaflet.js"crossorigin=""></script>
+
+  <!-- Load Esri Leaflet 2.1.4 -->
+  <script src="esri-leaflet/esri-leaflet.js" crossorigin=""></script>
+
+	<script src="reqwest.min.js"></script>
+	<script src="leaflet.markercluster.js"></script>	
+	<script src="Leaflet.Photo.js"></script>		
+
+
+  <!-- Load JQuery 3.3.1 -->
+  <script src="jquery-3.3.1.min.js" crossorigin=""></script>
+
+  <!--leaflet-velocity-->
+  <link rel="stylesheet" href="leaflet-velocity_tkws/leaflet-velocity.css" />
+  <script src="leaflet-velocity_tkws/leaflet-velocity.js"></script>
+  <script src="leaflet-velocity_tkws/IE_workarounds.js"></script>
+
+  <!--for timeslider-->
+  <script type="text/javascript" src="leafletTimeDimension/iso8601.min.js"></script>
+  <script type="text/javascript" src="leafletTimeDimension/leaflet.timedimension.noLayers.src.js"></script>
+  <link rel="stylesheet" href="leafletTimeDimension/leaflet.timedimension.control.min.css" />
+
+  <!--load variable values from server-->
+  <script type="text/javascript" src="weather/javascript_vars.js"></script>
+  <script type="text/javascript" src="weather/javascript_vars_rtofs.js"></script>
+
+  <style>
+    body { margin:0; padding:0; }
+    #map { position: absolute; top:0; bottom:0; right:0; left:0; z-index:1; }
+  </style>
+
+	<link rel="stylesheet" href="MarkerCluster.css" />	
+	<link rel="stylesheet" href="Leaflet.Photo.css" />	
+
+</head>
+<body>
+
+  <style>
+    #basemaps-wrapper {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 400;
+      background: black;
+      padding: 10px;
+    }
+    #basemaps {
+      margin-bottom: 5px;
+    }
+
+    /* No rounded borders */
+    .leaflet-bar,
+    .leaflet-control-layers,
+    .leaflet-control-zoom-in,
+    .leaflet-control-zoom-out,
+    .leaflet-popup-content-wrapper {
+      border-radius: 0px !important;
+    }
+
+    /* Panel to interact with layers */
+    #floating-panel {
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      z-index: 10000;
+      background-color: #111;
+      padding: 2px;
+      opacity: 0.7;
+    }
+
+    #floating-panel ul {
+      list-style-type: none;
+      padding-left: 10px;
+      padding-right: 10px;
+    }
+
+    #floating-panel ul li>label {
+      display: block;
+      margin: 2px;
+    }
+
+    #floating-panel ul li {
+      margin-bottom: 10px;
+    }
+
+    .verticalRange {
+      margin-top: 60px!important;
+      margin-bottom: 60px!important;
+      margin-left: -30px;
+      margin-right: -30px;
+      transform: rotate(270deg);
+    }
+
+    body {
+      color: white;
+      font-family: sans-serif;
+      font-weight: 100;
+      font-size: x-small;
+    }
+  </style>
+
+  <div id="map"></div>
+  <div id="floating-panel">
+    <ul>
+	  <li>
+		Filter photos by tag <br><input type="text" name="phototag" id="phototag" value="" size="15">
+	  </li>
+	<li>
+	Filter photos by earliest date:<br>
+  <input type="date" name="earliestphotos" id="earliestphotos" size="15">
+		</li>
+			<li>
+	Filter photos by latest date:<br>
+  <input type="date" name="latestphotos" id="latestphotos" size="15">
+		</li>
+		<li>
+		<button type="button" onClick="filterPhotos()">Filter Photos</button>
+		</li>
+      <li>
+        <label >Velocity Type</label>
+        <select name="parameter" id="parameter" onChange="parameterUpdate()">
+          <option selected value="wind10m" >wind10m</option>
+          <option value="seaSurfaceCurrent" >seaSurfaceCurrent</option>
+        </select>
+      </li>
+
+      <li>
+        <label>speedUnit</label>
+        <fieldset>
+          <input id="m/s" type="radio" name="speedUnit" value="m/s" onClick="speedUnit(this.id)">
+          <label for="m/s"> m/s</label>
+          <input id="km/h" type="radio" name="speedUnit" value="km/h" onClick="speedUnit(this.id)">
+          <label for="km/h"> km/h</label>
+          <input id="kt" type="radio" name="speedUnit" value="kt" onClick="speedUnit(this.id)" checked>
+          <label for="kt"> kt</label>
+          <input id="Bft" type="radio" name="speedUnit" value="Bft" onClick="speedUnit(this.id)">
+          <label for="Bft"> Bft</label>
+        </fieldset>
+      </li>
+
+    </ul>
+  </div>
+
+  <script>
+    var osmUrl='https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+    var osmAttrib='Map data © <a href="https://openstreetmap.org">OpenStreetMap</a> contributors';
+    var OpenStreetMap = new L.tileLayer(osmUrl, {maxZoom: 18, attribution: osmAttrib, opacity: 0.4}),
+      Topographic = new L.esri.basemapLayer('Topographic', {opacity: 0.4}),
+      Streets = new L.esri.basemapLayer('Streets', {opacity: 0.4}),
+      NationalGeographic = new L.esri.basemapLayer('NationalGeographic', {opacity: 0.4}),
+      Oceans = new L.esri.basemapLayer('Oceans', {opacity: 0.4}),
+      Gray = new L.esri.basemapLayer('ImageryFirefly', {opacity: 0.4}),
+      DarkGray = new L.esri.basemapLayer('DarkGray'),
+      Imagery = new L.esri.basemapLayer('Imagery'),
+      ShadedRelief = new L.esri.basemapLayer('ImageryClarity', {opacity: 0.4});
+
+    <!-- variables for GFS data -->
+    var startTimeGFS = new Date(Date.UTC(GFS_server_year, GFS_server_month - 1, GFS_server_day, GFS_server_hour));
+    var actualTimeGFS = new Date(Date.UTC(GFS_server_year, GFS_server_month - 1, GFS_server_day, GFS_server_hour + 6));
+    var endTimeGFS = new Date(Date.UTC(GFS_server_year, GFS_server_month - 1, GFS_server_day, GFS_server_hour + ((GFS_timesteps-1)*GFS_interval)));
+    var dataTimeIntervalGFS = startTimeGFS.toISOString() + "/" + endTimeGFS.toISOString();
+    var actualIntervalGFS = GFS_interval*2 ; // show only every second available timestep
+    var baseIndexGFS = 1; // index of the wind10mArray containing the layer nearest to the actual time (2 if actualIndex==GFS_Index, 1 if actualIndex==GFS_Index*2)
+    var dataPeriodGFS = "PT" + (actualIntervalGFS) + "H";
+    var wind10mBaseURL = 'weather/wind10m/';
+    var wind10mBaseName = 'wind10m_{h}h';
+    var wind10mName = '';
+    var wind10mArray = [];
+
+    <!-- variables for RTOFS data -->
+    var startTimeRTOFS = new Date(Date.UTC(RTOFS_server_year, RTOFS_server_month - 1, RTOFS_server_day, RTOFS_server_hour));
+    var actualTimeRTOFS = new Date(Date.UTC(RTOFS_server_year, RTOFS_server_month - 1, RTOFS_server_day, RTOFS_server_hour + 6));
+    var endTimeRTOFS = new Date(Date.UTC(RTOFS_server_year, RTOFS_server_month - 1, RTOFS_server_day, RTOFS_server_hour + ((RTOFS_timesteps-1)*RTOFS_interval)));
+    var dataTimeIntervalRTOFS = startTimeRTOFS.toISOString() + "/" + endTimeRTOFS.toISOString();
+    var actualIntervalRTOFS = RTOFS_interval*2 ; // show only every second available timestep
+    var baseIndexRTOFS = 1; // index of the seaSurfaceCurrent Array containing the layer nearest to the actual time (2 if actualIndex==RTOFS_Index, 1 if actualIndex==RTOFS_Index*2)
+    var dataPeriodRTOFS = "PT" + (actualIntervalRTOFS) + "H";
+    var seaSurfaceCurrentBaseURL = 'weather/sea_surface_current/';
+    var seaSurfaceCurrentBaseName = 'sea_surface_current_{h}h';
+    var seaSurfaceCurrentName = '';
+    var seaSurfaceCurrentArray = [];
+
+    let actualLayer = 'wind10m'; <!-- place the Layer you want to see here options: wind10m, seaSurfaceCurrent -->
+
+    let actualModel;
+    let startTime;
+    let actualTime;
+    let endTime;
+    let dataTimeInterval;
+    let actualInterval;
+    let baseIndex;
+    let dataPeriod;
+    let actualLayerBaseURL;
+    let actualLayerBaseName;
+    let actualLayerName = '';
+    let actualLayerArray = [];
+
+    <!-- variables to configure the visualization -->
+    let angleConventionValue;
+    let speedUnitValue;
+    let colorScale;
+    let parameter = 'wind10m';
+
+    <!-- variables to configure the initialization values -->
+    let initDisplayValues, initVelocityType, initEmptyString, initAngleConvention, initSpeedUnit, initMinVelocity, initMaxVelocity, initVelocityScale, initParticleAge, initLineWidth, initParticleMultiplier, initFrameRate, initColorScale;
+
+    switchParameter (actualLayer);
+
+    var map = new L.map('map', {
+      center: [54.04, 9.07],
+      zoom: 4,
+      layers: [Imagery],
+      timeDimension: true,
+      timeDimensionOptions: {
+        timeInterval: dataTimeInterval,
+        period: dataPeriod,
+        currentTime: actualTime
+      },
+      timeDimensionControl: true,
+      timeDimensionControlOptions: {
+        loopButton: false,
+        speedStep: 0.1,
+        minSpeed: 0.2,
+        maxSpeed: 0.3,
+        limitSliders: false,
+        limitMinimumRange: 24/GFS_interval,
+        playButton: false,
+        speedSlider: false
+      }
+    });
+
+    var baseMaps = {
+      "Imagery Firefly": Gray,
+      "Imagery": Imagery,
+      "Imagery Clarity": ShadedRelief,
+      "Oceans": Oceans,
+    };
+
+    var layerControl = new L.control.layers(baseMaps);
+    layerControl.addTo(map);
+
+    var actualLayerGroup = new L.layerGroup([], {});
+    actualLayerArray.length = map.timeDimension._availableTimes.length;
+
+    var actualTimeIndex = map.timeDimension._currentTimeIndex;
+
+    // load data (u, v grids) from weather.openportguide.de
+    layerControl.addOverlay(actualLayerGroup, actualLayer);
+    initializeLayer(actualLayerArray[actualTimeIndex]);
+
+    window.setInterval(function() {
+      if (actualTimeIndex != map.timeDimension._currentTimeIndex) {
+        actualTimeIndex = map.timeDimension._currentTimeIndex;
+        updateLayer(actualLayerArray[actualTimeIndex]);
+      }
+    },100);
+
+var photos = [{
+  "lat": 24.169921,
+  "lng": -77.583470,
+  "name": "South Andros, The Bahamas 09/18/2017, 10:47 am<br>Direction: NW",
+  "url": "photos/87514.jpg",
+  "thumbnail": "thumbnails/1_tn.jpg",
+  "tags" : "Bahamas",
+  "date" : "January 1, 2001"
+}, {
+  "lat": 19.337852,
+  "lng": 72.791445,
+  "name": "Vasai, India 02/22/2016, 1:37 pm<br>Direction: SE",
+  "url": "photos/727969c8428b145e904fa636e427cebf.jpg",
+  "thumbnail": "thumbnails/6_tn.jpg",
+  "tags" : "India",
+  "date" : "January 1, 2002"
+}, {
+  "lat": 14.578263,
+  "lng": 120.972861,
+  "name": "Manila Bay, The Philippines 03/02/2012, 3:43 pm<br>Direction: E",
+  "url": "photos/fivemile-1.jpg",
+  "thumbnail": "thumbnails/2_tn.jpg",
+  "tags" : "Philippines",
+  "date" : "January 1, 2003"
+}, {
+  "lat": 20.646378,
+  "lng": -105.242495,
+  "name": "Bahia de Banderas, Mexico",
+  "url": "photos/ocean-trash-resized.jpg",
+  "thumbnail": "thumbnails/3_tn.jpg",
+  "tags" : "Mexico",
+  "date" : "January 1, 2004"
+}, {
+  "lat": 26.127503,
+  "lng": -80.103323,
+  "name": "Fort Lauderdale, Florida",
+  "url": "photos/Ocean-Plastic-Yuck-889x331.jpg",
+  "thumbnail": "thumbnails/4_tn.jpg",
+  "tags" : "US",
+  "date" : "January 1, 2005"
+}, {
+  "lat": 24.844890,
+  "lng": 66.801877,
+  "name": "Karachi, Pakistan",
+  "url": "photos/floating-ocean-trash.jpg",
+  "thumbnail": "thumbnails/5_tn.jpg",
+  "tags" : "Pakistan",
+  "date" : "January 1, 2006"
+}, {
+  "lat": -17.421930,
+  "lng": 140.288507,
+  "name": "Gulf of Carpentaria, Australia",
+  "url": "photos/ocean-trash.jpg",
+  "thumbnail": "thumbnails/7_tn.jpg",
+  "tags" : "Australia",
+  "date" : "January 1, 2007"
+}, {
+  "lat": 7.940979,
+  "lng": 81.559204,
+  "name": "Pasikuda, Sri Lanka",
+  "url": "/photos/maxresdefault.jpg",
+  "thumbnail": "thumbnails/8_tn.jpg",
+  "tags" : "Sri Lanka",
+  "date" : "January 1, 2008"
+
+}];
+
+
+var photoLayer = L.photo.cluster().on('click', function(evt) {
+  var photo = evt.layer.photo;
+  var template = '<img src="{url}" /></a><p>{name}</p>';
+  evt.layer.bindPopup(L.Util.template(template, photo), {
+    minWidth: 400
+  }).openPopup();
+});
+
+photoLayer.add(photos).addTo(map);
+
+
+    function initializeLayer(Layer){ //initialize the actual layer
+      actualLayerGroup.clearLayers();
+      actualLayerName = actualLayerBaseName.replace(/{h}/g, (actualTimeIndex - baseIndex) * actualInterval);
+
+      angleConventionValue = initAngleConvention;
+      document.getElementById(initSpeedUnit).checked = true;
+      speedUnitValue = initSpeedUnit;
+      colorScale = initColorScale;
+
+      $.getJSON(actualLayerBaseURL + actualLayerName + ".json", function (data) {
+        this[actualLayerName] = L.velocityLayer({
+          displayValues: true,
+          displayOptions: {
+            velocityType: initVelocityType,
+            emptyString: "",
+            angleConvention: angleConventionValue,
+            speedUnit: speedUnitValue
+          },
+          data: data,
+          minVelocity: initMinVelocity,
+          maxVelocity: initMaxVelocity,
+          velocityScale: initVelocityScale,
+          particleAge: initParticleAge,
+          lineWidth: initLineWidth,
+          particleMultiplier: initParticleMultiplier,
+          frameRate: initFrameRate,
+          colorScale: initColorScale
+        });
+
+        actualLayerGroup.addLayer(this[actualLayerName]);
+        actualLayerArray[actualTimeIndex] = actualLayerGroup.getLayer(actualLayerGroup.getLayerId(this[actualLayerName]));
+        actualLayerGroup.addTo(map);
+      });
+      
+
+    }
+
+    function updateLayer(Layer){ //updates the actual layer
+      map.timeDimension.options.timeInterval = dataTimeInterval;
+      map.timeDimension.options.period = dataPeriod;
+      map.timeDimension.options.currentTime = actualTime;
+//      map.timeDimension.setAvailableTimes(null, extremes); //
+      actualLayerGroup.clearLayers();
+      actualLayerName = actualLayerBaseName.replace(/{h}/g, (actualTimeIndex - baseIndex) * actualInterval);
+
+      $.getJSON(actualLayerBaseURL + actualLayerName + ".json", function (data) {
+        this[actualLayerName] = L.velocityLayer({
+          displayValues: true,
+          displayOptions: {
+            velocityType: initVelocityType,
+            emptyString: "",
+            angleConvention: initAngleConvention,
+            speedUnit: speedUnitValue
+          },
+          data: data,
+          minVelocity: initMinVelocity,
+          maxVelocity: initMaxVelocity,
+          velocityScale: initVelocityScale,
+          particleAge: initParticleAge,
+          lineWidth: initLineWidth,
+          particleMultiplier: initParticleMultiplier,
+          frameRate: initFrameRate,
+          colorScale: initColorScale
+        });
+
+        actualLayerGroup.addLayer(this[actualLayerName]);
+        actualLayerArray[actualTimeIndex] = actualLayerGroup.getLayer(actualLayerGroup.getLayerId(this[actualLayerName]));
+        actualLayerGroup.addTo(map);
+      });
+    }
+
+    function updateNumber_0(ev) { //updates text field with integer
+      document.getElementById(ev.target.nextElementSibling.id).value = parseFloat(ev.target.value).toFixed(0);
+    }
+
+    function updateNumber_3(ev) { //updates text field with 3 decimal points
+      document.getElementById(ev.target.nextElementSibling.id).value = parseFloat(ev.target.value).toFixed(3);
+    }
+
+    function updateNumber_4(ev) { //updates text field with 4 decimal points
+      document.getElementById(ev.target.nextElementSibling.id).value = parseFloat(ev.target.value).toFixed(4);
+    }
+
+    function angleConvention (clickedId) {
+      angleConventionValue = clickedId;
+      updateLayer(actualLayerArray[actualTimeIndex]);
+    }
+
+    function speedUnit (clickedId) {
+      speedUnitValue = clickedId;
+      updateLayer(actualLayerArray[actualTimeIndex]);
+    }
+
+
+    function parameterUpdate () {
+      parameter = document.getElementById('parameter').value;
+      switchParameter (parameter);
+      initializeLayer(actualLayerArray[actualTimeIndex]);
+    }
+
+    function switchParameter (actualLayer) {
+      switch(actualLayer) {
+        case 'wind10m':
+          actualModel = 'GFS';
+          actualLayerBaseURL = wind10mBaseURL;
+          actualLayerBaseName = wind10mBaseName;
+          initDisplayValues = true;
+          initVelocityType = "Wind";
+          initEmptyString = "No wind data";
+          initAngleConvention = "bearingCW";
+          initSpeedUnit = "Bft";
+          initMinVelocity = 0;
+          initMaxVelocity = 30;
+          initVelocityScale = 0.002;
+          initParticleAge = 90;
+          initLineWidth = 1;
+          initParticleMultiplier = 0.0033;
+          initFrameRate = 15;
+          initColorScale = ["#2468b4", "#3c9dc2", "#80cdc1", "#97daa8", "#c6e7b5", "#eef7d9", "#ffee9f", "#fcd97d", "#ffb664", "#fc964b", "#fa7034", "#f54020", "#ed2d1c", "#dc1820", "#b40023"];
+          break;
+        case 'seaSurfaceCurrent':
+          actualModel = 'RTOFS';
+          actualLayerBaseURL = seaSurfaceCurrentBaseURL;
+          actualLayerBaseName = seaSurfaceCurrentBaseName;
+          initDisplayValues = true;
+          initVelocityType = "Current";
+          initEmptyString = "No current data";
+          initAngleConvention = "bearingCW";
+          initSpeedUnit = "kt";
+          initMinVelocity = 0;
+          initMaxVelocity = 1.5;
+          initVelocityScale = 0.06;
+          initParticleAge = 90;
+          initLineWidth = 3;
+          initParticleMultiplier = 0.0033;
+          initFrameRate = 15;
+          initColorScale = ["#2468b4", "#3c9dc2", "#80cdc1", "#97daa8", "#c6e7b5", "#eef7d9", "#ffee9f", "#fcd97d", "#ffb664", "#fc964b", "#fa7034", "#f54020", "#ed2d1c", "#dc1820", "#b40023"];
+          break;
+      }
+
+      switch(actualModel) {
+        case "GFS":
+          startTime = startTimeGFS;
+          actualTime = actualTimeGFS;
+          endTime = endTimeGFS;
+          dataTimeInterval = dataTimeIntervalGFS;
+          actualInterval = actualIntervalGFS;
+          baseIndex = baseIndexGFS;
+          dataPeriod = dataPeriodGFS;
+          break;
+        case "RTOFS":
+          startTime = startTimeRTOFS;
+          actualTime = actualTimeRTOFS;
+          endTime = endTimeRTOFS;
+          dataTimeInterval = dataTimeIntervalRTOFS;
+          actualInterval = actualIntervalRTOFS;
+          baseIndex = baseIndexRTOFS;
+          dataPeriod = dataPeriodRTOFS;
+          break;
+      }
+    }
+
+    function filterPhotos() {
+		var tags = document.getElementById("phototag").value;
+		var earliest = document.getElementById("earliestphotos").value;
+		var latest = document.getElementById("latestphotos").value;
+	 	
+		//map.removeLayer(photoLayer);
+		photoLayer.clearLayers();
+		var photos2 = [];
+		for (var i = 0; i < photos.length; i++) {
+			tagval = photos[i].tags;
+			console.log(tagval);
+			console.log(tags);
+			dateval = photos[i].date;
+			var match = true;
+			if (tags.length > 0) {
+				console.log("not empty");
+				if (tagval.includes(tags)) {
+					console.log("found match");
+					//photos2.push(photos[i]);
+				}
+			} 
+			
+			if (match == true) {
+				photos2.push(photos[i]);
+			}
+
+		}
+		
+		
+
+
+
+photoLayer.clear();
+photoLayer.add(photos2);
+	
+	}
+  </script>
+</body>
+</html>
